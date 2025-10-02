@@ -11,15 +11,7 @@ import numpy as np
 from collections import deque
 
 class SerialPlotInterface:
-      def update_plot_timer(self):
-        """Timer para atualizar o gráfico periodicamente"""
-        if self.is_streaming:
-            try:
-                self.update_plot_display()
-                # Agendar próxima atualização
-                self.root.after(30, self.update_plot_timer)  # Atualizar a cada 30ms (mais rápido)
-            except Exception as e:
-                print(f"Erro no timer do plot: {e}")nit__(self, root):
+    def __init__(self, root):
         self.root = root
         self.root.title("Interface de Leitura Serial - Tempo Real")
         self.root.geometry("1000x700")
@@ -165,12 +157,12 @@ class SerialPlotInterface:
         self.toolbar.update()
         
     def connect_serial(self):
-        """Conecta à porta serial COM5"""
+        """Conecta à porta serial"""
         try:
             # Tentar fechar conexões anteriores se existirem
             if self.serial_port and self.serial_port.is_open:
                 self.serial_port.close()
-                time.sleep(0.5)  # Aguardar um pouco para liberar a porta
+                time.sleep(0.1)  # Aguardar menos tempo
             
             # Configurar a conexão serial
             selected_port = self.port_var.get()
@@ -181,14 +173,8 @@ class SerialPlotInterface:
             self.serial_port = serial.Serial()
             self.serial_port.port = selected_port
             self.serial_port.baudrate = 250000
-            self.serial_port.timeout = 0.1
-            self.serial_port.write_timeout = 0.1
-            self.serial_port.bytesize = serial.EIGHTBITS
-            self.serial_port.parity = serial.PARITY_NONE
-            self.serial_port.stopbits = serial.STOPBITS_ONE
-            self.serial_port.rtscts = False
-            self.serial_port.dsrdtr = False
-            self.serial_port.xonxoff = False
+            self.serial_port.timeout = 0.01  # Timeout menor para leitura mais rápida
+            self.serial_port.write_timeout = 0.01
             
             # Abrir a conexão
             self.serial_port.open()
@@ -207,19 +193,8 @@ class SerialPlotInterface:
                     f"Acesso negado à {selected_port}!\n\n"
                     "Possíveis soluções:\n"
                     f"1. Feche outros programas que possam estar usando {selected_port}\n"
-                    "   (Arduino IDE, PuTTY, Tera Term, etc.)\n"
                     "2. Execute este programa como Administrador\n"
-                    "3. Desconecte e reconecte o dispositivo USB\n"
-                    "4. Verifique se o driver está instalado corretamente\n"
-                    "5. Clique em ↻ para atualizar a lista de portas")
-            elif "could not open port" in error_msg:
-                messagebox.showerror("Erro Serial", 
-                    f"Não foi possível abrir {selected_port}!\n\n"
-                    "Verifique se:\n"
-                    "1. O dispositivo está conectado\n"
-                    f"2. A porta {selected_port} existe\n"
-                    "3. O driver está instalado\n"
-                    "4. Clique em ↻ para atualizar portas")
+                    "3. Desconecte e reconecte o dispositivo USB")
             else:
                 messagebox.showerror("Erro Serial", f"Erro ao conectar {selected_port}:\n{str(e)}")
             
@@ -264,9 +239,7 @@ class SerialPlotInterface:
         self.recording_thread.start()
         
         # Iniciar timer para atualização do gráfico
-        print("Iniciando timer do gráfico...")  # Debug
         self.update_plot_timer()
-        print("Timer iniciado!")  # Debug
     
     def stop_streaming(self):
         """Para o streaming de dados"""
@@ -276,8 +249,6 @@ class SerialPlotInterface:
         self.status_label.config(text=f"Status: Parado - {len(self.data_points)} pontos coletados")
         self.port_combo.config(state="readonly")
         self.refresh_button.config(state="normal")
-        
-        # Parar timer (será parado automaticamente quando is_streaming for False)
         
         # Desconectar serial
         self.disconnect_serial()
@@ -294,12 +265,13 @@ class SerialPlotInterface:
         self.ax.set_xlabel("Tempo (s)")
         self.ax.set_ylabel("Valor")
         self.ax.grid(True, alpha=0.3)
-        self.line, = self.ax.plot([], [], 'b-', linewidth=1.5, alpha=0.8)
-        self.canvas.draw()
+        self.ax.set_xlim(0, 30)
+        self.ax.set_ylim(-2, 2)
+        self.ax.set_facecolor('#f8f8f8')
+        self.canvas.draw_idle()
     
     def read_serial_data(self):
         """Thread para ler dados da serial continuamente"""
-        print("Iniciando leitura da serial...")
         try:
             while not self.stop_event.is_set() and self.is_streaming:
                 if self.serial_port and self.serial_port.is_open:
@@ -308,7 +280,6 @@ class SerialPlotInterface:
                         if self.serial_port.in_waiting > 0:
                             # Ler linha da serial
                             line = self.serial_port.readline().decode('utf-8', errors='ignore').strip()
-                            print(f"Linha lida: '{line}'")  # Debug
                             
                             if line:
                                 # Tentar converter para float
@@ -317,7 +288,6 @@ class SerialPlotInterface:
                                     current_time = time.time() - self.start_time
                                     self.data_points.append(value)
                                     self.time_points.append(current_time)
-                                    print(f"Valor adicionado: {value} no tempo {current_time:.2f}s")  # Debug
                                     
                                     # Atualizar contador de pontos na UI thread
                                     self.root.after_idle(self.update_stats)
@@ -331,19 +301,14 @@ class SerialPlotInterface:
                                         current_time = time.time() - self.start_time
                                         self.data_points.append(value)
                                         self.time_points.append(current_time)
-                                        print(f"Número extraído: {value} no tempo {current_time:.2f}s")  # Debug
                                         
                                         # Atualizar contador de pontos na UI thread
                                         self.root.after_idle(self.update_stats)
-                                    else:
-                                        print(f"Não foi possível extrair número da linha: '{line}'")  # Debug
-                        # else:
-                            # Comentado: dados de teste removidos para não interferir
-                                    
+                                        
                     except Exception as e:
                         print(f"Erro ao ler serial: {e}")
                 
-                time.sleep(0.01)  # Pausa pequena para leitura mais rápida
+                time.sleep(0.005)  # 5ms - muito mais rápido para captura
                 
         except Exception as e:
             print(f"Erro geral na thread de leitura: {e}")
@@ -355,110 +320,82 @@ class SerialPlotInterface:
     
     def test_plot(self):
         """Função de teste para adicionar dados e ver se o plot funciona"""
-        print("Adicionando dados de teste...")
         # Limpar dados existentes
         self.data_points.clear()
         self.time_points.clear()
         
         # Adicionar alguns pontos de teste
-        for i in range(10):
+        for i in range(20):
             t = i * 0.1
             value = np.sin(2 * np.pi * t) + np.random.normal(0, 0.1)
             self.data_points.append(value)
             self.time_points.append(t)
         
-        print(f"Adicionados {len(self.data_points)} pontos de teste")
         self.update_stats()
-        
-        # Atualizar plot manualmente
-        if len(self.data_points) > 0:
-            times = list(self.time_points)
-            values = list(self.data_points)
-            
-            self.ax.clear()
-            self.ax.plot(times, values, 'b-', linewidth=1.5, alpha=0.8)
-            self.ax.set_title(f"Teste - {len(values)} pontos")
-            self.ax.set_xlabel("Tempo (s)")
-            self.ax.set_ylabel("Valor")
-            self.ax.grid(True, alpha=0.3)
-            self.canvas.draw()
-            print("Plot atualizado manualmente")
+        self.update_plot_display()
     
     def update_plot_timer(self):
         """Timer para atualizar o gráfico periodicamente"""
         if self.is_streaming:
             try:
                 self.update_plot_display()
-                # Agendar próxima atualização
-                self.root.after(50, self.update_plot_timer)  # Atualizar a cada 50ms
+                # Agendar próxima atualização - muito mais rápido!
+                self.root.after(20, self.update_plot_timer)  # 20ms = 50 FPS
             except Exception as e:
                 print(f"Erro no timer do plot: {e}")
     
     def update_plot_display(self):
-        """Atualiza a exibição do gráfico"""
+        """Atualiza a exibição do gráfico - OTIMIZADO"""
         try:
             if len(self.data_points) > 0:
-                # Converter para listas para plotagem
-                times = list(self.time_points)
-                values = list(self.data_points)
+                # Converter para arrays numpy para performance
+                times = np.array(self.time_points)
+                values = np.array(self.data_points)
                 
-                print(f"Atualizando plot com {len(values)} pontos")  # Debug
-                
-                # Limpar e redesenhar completamente o gráfico
+                # Limpar e redesenhar
                 self.ax.clear()
-                self.ax.plot(times, values, 'b-', linewidth=1.5, alpha=0.8, marker='o', markersize=2)
+                self.ax.plot(times, values, 'b-', linewidth=1, alpha=0.8)
                 
-                # Configurar aparência do gráfico
+                # Configurar aparência
                 self.ax.set_xlabel("Tempo (s)")
                 self.ax.set_ylabel("Valor")
                 self.ax.grid(True, alpha=0.3)
                 self.ax.set_facecolor('#f8f8f8')
                 
-                # Ajustar limites dos eixos
-                if times and values:
-                    # Mostrar últimos 30 segundos ou todos os dados se menos que isso
-                    time_window = 30
-                    if len(times) > 1 and times[-1] > time_window:
-                        x_min = times[-1] - time_window
-                        x_max = times[-1] + 1
-                    else:
-                        x_min = 0 if len(times) == 0 else min(0, min(times) - 0.5)
-                        x_max = max(time_window, (times[-1] + 1 if len(times) > 0 else 1))
-                    
-                    self.ax.set_xlim(x_min, x_max)
-                    
-                    # Ajustar limites Y com margem
-                    if len(values) == 1:
-                        # Se só há um ponto, criar uma janela ao redor dele
-                        y_center = values[0]
-                        y_margin = max(abs(y_center) * 0.1, 1)  # 10% ou pelo menos 1 unidade
-                        self.ax.set_ylim(y_center - y_margin, y_center + y_margin)
-                    else:
-                        # Se há múltiplos pontos, usar o range normal
-                        y_min, y_max = min(values), max(values)
-                        y_range = y_max - y_min
-                        y_margin = max(y_range * 0.1, 0.1)  # 10% ou pelo menos 0.1
-                        self.ax.set_ylim(y_min - y_margin, y_max + y_margin)
+                # Ajustar limites - janela deslizante de 10 segundos
+                if times[-1] > 10:
+                    x_min = times[-1] - 10
+                    x_max = times[-1] + 0.5
+                else:
+                    x_min = 0
+                    x_max = max(10, times[-1] + 0.5)
                 
-                # Atualizar título com estatísticas
+                self.ax.set_xlim(x_min, x_max)
+                
+                # Limites Y otimizados
                 if len(values) > 0:
-                    mean_val = np.mean(values)
-                    self.ax.set_title(f"Monitor Serial - Tempo Real | Pontos: {len(values)} | Média: {mean_val:.2f}")
+                    y_min, y_max = values.min(), values.max()
+                    y_range = y_max - y_min
+                    y_margin = max(y_range * 0.1, 0.1)
+                    self.ax.set_ylim(y_min - y_margin, y_max + y_margin)
                 
-                # Redesenhar o canvas (otimizado)
+                # Título com estatísticas
+                mean_val = values.mean()
+                self.ax.set_title(f"Monitor Serial | {len(values)} pontos | Média: {mean_val:.2f}")
+                
+                # Redesenho otimizado
                 self.canvas.draw_idle()
-                print(f"Plot redesenhado com sucesso")  # Debug
             else:
-                # Se não há dados, manter eixos padrão
+                # Sem dados
                 self.ax.clear()
-                self.ax.set_xlim(0, 30)
+                self.ax.set_xlim(0, 10)
                 self.ax.set_ylim(-2, 2)
-                self.ax.set_title("Monitor Serial - Tempo Real | Aguardando dados...")
+                self.ax.set_title("Monitor Serial - Aguardando dados...")
                 self.ax.set_xlabel("Tempo (s)")
                 self.ax.set_ylabel("Valor")
                 self.ax.grid(True, alpha=0.3)
                 self.ax.set_facecolor('#f8f8f8')
-                self.canvas.draw()
+                self.canvas.draw_idle()
                 
         except Exception as e:
             print(f"Erro ao atualizar plot: {e}")

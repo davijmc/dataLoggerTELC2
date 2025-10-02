@@ -8,18 +8,22 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 import numpy as np
+from collections import deque
 
 class SerialPlotInterface:
     def __init__(self, root):
         self.root = root
-        self.root.title("Interface de Leitura Serial COM5")
-        self.root.geometry("800x600")
+        self.root.title("Interface de Leitura Serial - Tempo Real")
+        self.root.geometry("1000x700")
         
         # Variáveis para controle
         self.serial_port = None
-        self.is_recording = False
-        self.data_points = []
-        self.time_points = []
+        self.is_streaming = False
+        self.data_points = deque(maxlen=1000)  # Buffer circular para 1000 pontos
+        self.time_points = deque(maxlen=1000)
+        self.start_time = 0
+        self.recording_thread = None
+        self.stop_event = threading.Event()
         
         # Configuração da interface
         self.setup_ui()
@@ -36,7 +40,7 @@ class SerialPlotInterface:
         main_frame.rowconfigure(2, weight=1)
         
         # Título
-        title_label = ttk.Label(main_frame, text="Gravador Serial COM5", 
+        title_label = ttk.Label(main_frame, text="Monitor Serial - Tempo Real", 
                                font=("Arial", 16, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
         
@@ -59,18 +63,28 @@ class SerialPlotInterface:
                                         command=self.refresh_ports)
         self.refresh_button.pack(side=tk.LEFT)
         
-        # Botão de gravação
-        self.record_button = ttk.Button(control_frame, text="Iniciar Gravação (3s)", 
-                                       command=self.toggle_recording)
-        self.record_button.pack(side=tk.LEFT, padx=(10, 10))
+        # Botão Start/Stop
+        self.start_stop_button = ttk.Button(control_frame, text="START", 
+                                           command=self.toggle_streaming)
+        self.start_stop_button.pack(side=tk.LEFT, padx=(10, 10))
+        
+        # Botão para limpar dados
+        self.clear_button = ttk.Button(control_frame, text="Limpar", 
+                                      command=self.clear_data)
+        self.clear_button.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Botão de teste
+        self.test_button = ttk.Button(control_frame, text="Teste", 
+                                     command=self.test_plot)
+        self.test_button.pack(side=tk.LEFT, padx=(0, 10))
         
         # Status label
         self.status_label = ttk.Label(control_frame, text="Status: Pronto")
         self.status_label.pack(side=tk.LEFT, padx=(10, 0))
         
-        # Progress bar
-        self.progress = ttk.Progressbar(control_frame, length=200, mode='determinate')
-        self.progress.pack(side=tk.RIGHT, padx=(10, 0))
+        # Label para estatísticas
+        self.stats_label = ttk.Label(control_frame, text="Pontos: 0")
+        self.stats_label.pack(side=tk.RIGHT, padx=(10, 0))
         
         # Carregar portas disponíveis
         self.refresh_ports()
@@ -112,16 +126,27 @@ class SerialPlotInterface:
         
     def setup_plot(self, parent):
         # Criar figura matplotlib
-        self.fig = Figure(figsize=(10, 6), dpi=100)
+        self.fig = Figure(figsize=(12, 7), dpi=100)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_title("Dados da Serial COM5")
+        
+        # Configurar aparência inicial
+        self.ax.set_title("Monitor Serial - Tempo Real")
         self.ax.set_xlabel("Tempo (s)")
         self.ax.set_ylabel("Valor")
-        self.ax.grid(True)
+        self.ax.grid(True, alpha=0.3)
+        self.ax.set_xlim(0, 30)
+        self.ax.set_ylim(-2, 2)
+        
+        # Configurar cor de fundo
+        self.fig.patch.set_facecolor('white')
+        self.ax.set_facecolor('#f8f8f8')
         
         # Canvas para matplotlib
         self.canvas = FigureCanvasTkAgg(self.fig, parent)
         self.canvas.get_tk_widget().grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # Desenhar o gráfico inicial
+        self.canvas.draw()
         
         # Toolbar de navegação
         toolbar_frame = ttk.Frame(parent)
@@ -201,120 +226,239 @@ class SerialPlotInterface:
             self.serial_port.close()
             self.serial_port = None
     
-    def toggle_recording(self):
-        """Inicia ou para a gravação"""
-        if not self.is_recording:
-            self.start_recording()
+    def toggle_streaming(self):
+        """Alterna entre iniciar e parar o streaming"""
+        if not self.is_streaming:
+            self.start_streaming()
         else:
-            self.stop_recording()
+            self.stop_streaming()
     
-    def start_recording(self):
-        """Inicia a gravação de dados"""
+    def start_streaming(self):
+        """Inicia o streaming de dados em tempo real"""
         if not self.connect_serial():
             return
             
-        self.is_recording = True
-        self.record_button.config(text="Gravando...", state="disabled")
-        self.status_label.config(text="Status: Gravando dados por 3 segundos...")
+        self.is_streaming = True
+        self.start_stop_button.config(text="STOP")
+        self.status_label.config(text="Status: Streaming em tempo real...")
+        self.port_combo.config(state="disabled")
+        self.refresh_button.config(state="disabled")
         
-        # Limpar dados anteriores
-        self.data_points = []
-        self.time_points = []
+        # Resetar dados
+        self.data_points.clear()
+        self.time_points.clear()
+        self.start_time = time.time()
+        self.stop_event.clear()
         
-        # Iniciar thread de gravação
-        self.recording_thread = threading.Thread(target=self.record_data)
+        # Iniciar thread de leitura
+        self.recording_thread = threading.Thread(target=self.read_serial_data)
         self.recording_thread.daemon = True
         self.recording_thread.start()
+        
+        # Iniciar timer para atualização do gráfico
+        print("Iniciando timer do gráfico...")  # Debug
+        self.update_plot_timer()
+        print("Timer iniciado!")  # Debug
     
-    def record_data(self):
-        """Thread para gravar dados da serial por 3 segundos"""
-        start_time = time.time()
-        recording_duration = 3.0  # 3 segundos
+    def stop_streaming(self):
+        """Para o streaming de dados"""
+        self.is_streaming = False
+        self.stop_event.set()
+        self.start_stop_button.config(text="START")
+        self.status_label.config(text=f"Status: Parado - {len(self.data_points)} pontos coletados")
+        self.port_combo.config(state="readonly")
+        self.refresh_button.config(state="normal")
         
-        # Configurar progress bar
-        self.root.after(0, lambda: self.progress.config(maximum=recording_duration))
+        # Parar timer (será parado automaticamente quando is_streaming for False)
         
+        # Desconectar serial
+        self.disconnect_serial()
+    
+    def clear_data(self):
+        """Limpa todos os dados coletados"""
+        self.data_points.clear()
+        self.time_points.clear()
+        self.stats_label.config(text="Pontos: 0")
+        
+        # Limpar gráfico
+        self.ax.clear()
+        self.ax.set_title("Monitor Serial - Tempo Real")
+        self.ax.set_xlabel("Tempo (s)")
+        self.ax.set_ylabel("Valor")
+        self.ax.grid(True, alpha=0.3)
+        self.line, = self.ax.plot([], [], 'b-', linewidth=1.5, alpha=0.8)
+        self.canvas.draw()
+    
+    def read_serial_data(self):
+        """Thread para ler dados da serial continuamente"""
+        print("Iniciando leitura da serial...")
         try:
-            while time.time() - start_time < recording_duration:
-                current_time = time.time() - start_time
-                
-                # Atualizar progress bar
-                self.root.after(0, lambda t=current_time: self.progress.config(value=t))
-                
-                if self.serial_port and self.serial_port.in_waiting > 0:
+            while not self.stop_event.is_set() and self.is_streaming:
+                if self.serial_port and self.serial_port.is_open:
                     try:
-                        # Ler linha da serial
-                        line = self.serial_port.readline().decode('utf-8', errors='ignore').strip()
-                        
-                        if line:
-                            # Tentar converter para float
-                            try:
-                                value = float(line)
-                                self.data_points.append(value)
-                                self.time_points.append(current_time)
-                            except ValueError:
-                                # Se não conseguir converter, tentar extrair números da linha
-                                import re
-                                numbers = re.findall(r'-?\d+\.?\d*', line)
-                                if numbers:
-                                    value = float(numbers[0])
+                        # Verificar se há dados disponíveis
+                        if self.serial_port.in_waiting > 0:
+                            # Ler linha da serial
+                            line = self.serial_port.readline().decode('utf-8', errors='ignore').strip()
+                            print(f"Linha lida: '{line}'")  # Debug
+                            
+                            if line:
+                                # Tentar converter para float
+                                try:
+                                    value = float(line)
+                                    current_time = time.time() - self.start_time
                                     self.data_points.append(value)
                                     self.time_points.append(current_time)
+                                    print(f"Valor adicionado: {value} no tempo {current_time:.2f}s")  # Debug
+                                    
+                                    # Atualizar contador de pontos na UI thread
+                                    self.root.after_idle(self.update_stats)
+                                    
+                                except ValueError:
+                                    # Se não conseguir converter, tentar extrair números da linha
+                                    import re
+                                    numbers = re.findall(r'-?\d+\.?\d*', line)
+                                    if numbers:
+                                        value = float(numbers[0])
+                                        current_time = time.time() - self.start_time
+                                        self.data_points.append(value)
+                                        self.time_points.append(current_time)
+                                        print(f"Número extraído: {value} no tempo {current_time:.2f}s")  # Debug
+                                        
+                                        # Atualizar contador de pontos na UI thread
+                                        self.root.after_idle(self.update_stats)
+                                    else:
+                                        print(f"Não foi possível extrair número da linha: '{line}'")  # Debug
+                        # else:
+                            # Comentado: dados de teste removidos para não interferir
+                                    
                     except Exception as e:
                         print(f"Erro ao ler serial: {e}")
                 
-                time.sleep(0.01)  # Pequena pausa para não sobrecarregar
+                time.sleep(0.1)  # Pausa maior para ver melhor os dados de teste
                 
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Erro", f"Erro durante gravação:\n{str(e)}"))
-        
-        finally:
-            # Finalizar gravação
-            self.root.after(0, self.finish_recording)
+            print(f"Erro geral na thread de leitura: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Erro", f"Erro durante streaming:\n{str(e)}"))
     
-    def finish_recording(self):
-        """Finaliza a gravação e atualiza a interface"""
-        self.is_recording = False
-        self.disconnect_serial()
-        
-        self.record_button.config(text="Iniciar Gravação (3s)", state="normal")
-        self.progress.config(value=0)
-        
-        if self.data_points:
-            self.status_label.config(text=f"Status: Gravação concluída - {len(self.data_points)} pontos coletados")
-            self.update_plot()
-        else:
-            self.status_label.config(text="Status: Nenhum dado coletado")
-            messagebox.showwarning("Aviso", "Nenhum dado foi coletado da serial.\nVerifique se há dados sendo enviados na COM5.")
+    def update_stats(self):
+        """Atualiza as estatísticas na interface"""
+        self.stats_label.config(text=f"Pontos: {len(self.data_points)}")
     
-    def update_plot(self):
-        """Atualiza o gráfico com os dados coletados"""
-        self.ax.clear()
+    def test_plot(self):
+        """Função de teste para adicionar dados e ver se o plot funciona"""
+        print("Adicionando dados de teste...")
+        # Limpar dados existentes
+        self.data_points.clear()
+        self.time_points.clear()
         
-        if self.data_points and self.time_points:
-            self.ax.plot(self.time_points, self.data_points, 'b-', linewidth=1)
-            self.ax.set_title(f"Dados da Serial COM5 - {len(self.data_points)} pontos")
+        # Adicionar alguns pontos de teste
+        for i in range(10):
+            t = i * 0.1
+            value = np.sin(2 * np.pi * t) + np.random.normal(0, 0.1)
+            self.data_points.append(value)
+            self.time_points.append(t)
+        
+        print(f"Adicionados {len(self.data_points)} pontos de teste")
+        self.update_stats()
+        
+        # Atualizar plot manualmente
+        if len(self.data_points) > 0:
+            times = list(self.time_points)
+            values = list(self.data_points)
+            
+            self.ax.clear()
+            self.ax.plot(times, values, 'b-', linewidth=1.5, alpha=0.8)
+            self.ax.set_title(f"Teste - {len(values)} pontos")
             self.ax.set_xlabel("Tempo (s)")
             self.ax.set_ylabel("Valor")
-            self.ax.grid(True)
-            
-            # Adicionar estatísticas
+            self.ax.grid(True, alpha=0.3)
+            self.canvas.draw()
+            print("Plot atualizado manualmente")
+    
+    def update_plot_timer(self):
+        """Timer para atualizar o gráfico periodicamente"""
+        if self.is_streaming:
+            try:
+                self.update_plot_display()
+                # Agendar próxima atualização
+                self.root.after(100, self.update_plot_timer)  # Atualizar a cada 100ms
+            except Exception as e:
+                print(f"Erro no timer do plot: {e}")
+    
+    def update_plot_display(self):
+        """Atualiza a exibição do gráfico"""
+        try:
             if len(self.data_points) > 0:
-                mean_val = np.mean(self.data_points)
-                std_val = np.std(self.data_points)
-                min_val = np.min(self.data_points)
-                max_val = np.max(self.data_points)
+                # Converter para listas para plotagem
+                times = list(self.time_points)
+                values = list(self.data_points)
                 
-                stats_text = f"Média: {mean_val:.2f}, Std: {std_val:.2f}\nMin: {min_val:.2f}, Max: {max_val:.2f}"
-                self.ax.text(0.02, 0.98, stats_text, transform=self.ax.transAxes,
-                           verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-        
-        self.canvas.draw()
+                print(f"Atualizando plot com {len(values)} pontos")  # Debug
+                
+                # Limpar e redesenhar completamente o gráfico
+                self.ax.clear()
+                self.ax.plot(times, values, 'b-', linewidth=1.5, alpha=0.8, marker='o', markersize=2)
+                
+                # Configurar aparência do gráfico
+                self.ax.set_xlabel("Tempo (s)")
+                self.ax.set_ylabel("Valor")
+                self.ax.grid(True, alpha=0.3)
+                self.ax.set_facecolor('#f8f8f8')
+                
+                # Ajustar limites dos eixos
+                if times and values:
+                    # Mostrar últimos 30 segundos ou todos os dados se menos que isso
+                    time_window = 30
+                    if len(times) > 1 and times[-1] > time_window:
+                        x_min = times[-1] - time_window
+                        x_max = times[-1] + 1
+                    else:
+                        x_min = 0 if len(times) == 0 else min(0, min(times) - 0.5)
+                        x_max = max(time_window, (times[-1] + 1 if len(times) > 0 else 1))
+                    
+                    self.ax.set_xlim(x_min, x_max)
+                    
+                    # Ajustar limites Y com margem
+                    if len(values) == 1:
+                        # Se só há um ponto, criar uma janela ao redor dele
+                        y_center = values[0]
+                        y_margin = max(abs(y_center) * 0.1, 1)  # 10% ou pelo menos 1 unidade
+                        self.ax.set_ylim(y_center - y_margin, y_center + y_margin)
+                    else:
+                        # Se há múltiplos pontos, usar o range normal
+                        y_min, y_max = min(values), max(values)
+                        y_range = y_max - y_min
+                        y_margin = max(y_range * 0.1, 0.1)  # 10% ou pelo menos 0.1
+                        self.ax.set_ylim(y_min - y_margin, y_max + y_margin)
+                
+                # Atualizar título com estatísticas
+                if len(values) > 0:
+                    mean_val = np.mean(values)
+                    self.ax.set_title(f"Monitor Serial - Tempo Real | Pontos: {len(values)} | Média: {mean_val:.2f}")
+                
+                # Redesenhar o canvas
+                self.canvas.draw()
+                print(f"Plot redesenhado com sucesso")  # Debug
+            else:
+                # Se não há dados, manter eixos padrão
+                self.ax.clear()
+                self.ax.set_xlim(0, 30)
+                self.ax.set_ylim(-2, 2)
+                self.ax.set_title("Monitor Serial - Tempo Real | Aguardando dados...")
+                self.ax.set_xlabel("Tempo (s)")
+                self.ax.set_ylabel("Valor")
+                self.ax.grid(True, alpha=0.3)
+                self.ax.set_facecolor('#f8f8f8')
+                self.canvas.draw()
+                
+        except Exception as e:
+            print(f"Erro ao atualizar plot: {e}")
     
     def on_closing(self):
         """Função chamada ao fechar a janela"""
-        if self.is_recording:
-            self.stop_recording()
+        if self.is_streaming:
+            self.stop_streaming()
         self.disconnect_serial()
         self.root.destroy()
 

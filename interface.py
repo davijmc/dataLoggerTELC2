@@ -4,22 +4,14 @@ import serial
 import serial.tools.list_ports
 import threading
 import time
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 import numpy as np
 from collections import deque
 
 class SerialPlotInterface:
-      def update_plot_timer(self):
-        """Timer para atualizar o gráfico periodicamente"""
-        if self.is_streaming:
-            try:
-                self.update_plot_display()
-                # Agendar próxima atualização
-                self.root.after(30, self.update_plot_timer)  # Atualizar a cada 30ms (mais rápido)
-            except Exception as e:
-                print(f"Erro no timer do plot: {e}")nit__(self, root):
+    def __init__(self, root):
         self.root = root
         self.root.title("Interface de Leitura Serial - Tempo Real")
         self.root.geometry("1000x700")

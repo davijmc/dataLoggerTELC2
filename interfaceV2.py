@@ -61,7 +61,7 @@ def update(frame):
                 # Atualiza a linha
                 line.set_data(x_data, y_data)
 
-                # Mantém eixo Y fixo em torno de ±1.5 com folga
+                # Mantém eixo Y fixo em torno de +/-1.5 com folga
                 ax.set_ylim(-2, 2)
 
         except ValueError:

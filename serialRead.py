@@ -5,7 +5,7 @@ from datetime import datetime
 SERIAL_PORT = 'COM6'
 BAUD_RATE = 2000000
 READ_DURATION = 10  # segundos; use None para rodar até Ctrl+C
-OUTPUT_FILE = 'teste.txt'
+OUTPUT_FILE = 'dados.txt'
 
 def save_vector_to_file(vec, filename=OUTPUT_FILE):
     """Salva os valores do vetor em arquivo, um por linha."""

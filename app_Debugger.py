@@ -69,8 +69,14 @@ def build_gui():
             # if update_plots isn't available for some reason, ignore silently
             pass
 
-    stop_btn = ttk.Button(btn_frame, text="Clear Log", command=clear_all)
-    stop_btn.pack(side='left')
+    # Stop capture button (disabled until capture is started)
+    stop_btn = ttk.Button(btn_frame, text="Stop Capture")
+    stop_btn.pack(side='left', padx=6)
+    stop_btn.config(state='disabled')
+
+    # Clear log button
+    clear_btn = ttk.Button(btn_frame, text="Clear Log", command=clear_all)
+    clear_btn.pack(side='left')
 
     def append_log(text):
         log.after(0, lambda: (log.insert(tk.END, text + "\n"), log.see(tk.END)))
@@ -136,39 +142,52 @@ def build_gui():
             ax_bot.text(0.5, 0.5, "Sem dados", ha='center', va='center')
         canvas_bot.draw_idle()
 
-    def capture_thread(port, baud, read_dur, trigger, cap_len):
-        try:
-            append_log(f"Iniciando captura: port={port} baud={baud}")
-            data, duracao = sr.r_serial(port, baud, trigger, cap_len)
-            append_log(f"Captura finalizada, duração: {duracao:.3f}s, amostras: {len(data)}")
-            bin_data = cvad.ad(data)
-            fs = 82333  # Hz, valor estimado
-            # dec.nec_decoder may return bits as part of tuple; keep compatibility
-            try:
-                address, command, status, r_edg, f_edg, bits = dec.nec_decoder(bin_data, fs)
-            except Exception:
-                # fallback if module returns 5 elements
-                address, command, status, r_edg, f_edg = dec.nec_decoder(bin_data, fs)
-                bits = []
-            if status == 0:
-                append_log("Decodificação não realizada")
-            elif status == 1:
-                append_log("Verificação de comando: falhou")
-            elif status == 2:
-                append_log("Verificação de comando: passou")
-            elif status == 3:
-                append_log("Aviso: não foram detectados bits suficientes para decodificação")
-            append_log(f"Número de edges de subida: {r_edg}")
-            append_log(f"Número de edges de descida: {f_edg}")
-            append_log(f"Bits detectados: {len(bits)}")
-            append_log(f"Endereço: {hex(address)}, Comando: {hex(command)}\n\n")
+    # Event to control continuous capture loop
+    capture_stop_event = threading.Event()
 
-            # update plots in main thread
-            root.after(0, lambda: update_plots(data, bin_data))
+    def capture_thread(port, baud, read_dur, trigger, cap_len):
+        """Loop de captura contínua. Executa capturas sucessivas até que
+        `capture_stop_event` seja setado (quando o usuário clicar em Stop).
+        """
+        try:
+            append_log(f"Iniciando captura contínua: port={port} baud={baud}")
+            while not capture_stop_event.is_set():
+                append_log("Aguardando trigger / iniciando nova captura...")
+                data, duracao = sr.r_serial(port, baud, trigger, cap_len)
+                append_log(f"Captura finalizada, duração: {duracao:.3f}s, amostras: {len(data)}")
+                bin_data = cvad.ad(data)
+                fs = 82333  # Hz, valor estimado
+                # dec.nec_decoder may return bits as part of tuple; keep compatibility
+                try:
+                    address, command, status, r_edg, f_edg, bits = dec.nec_decoder(bin_data, fs)
+                except Exception:
+                    # fallback if module returns 5 elements
+                    address, command, status, r_edg, f_edg = dec.nec_decoder(bin_data, fs)
+                    bits = []
+                if status == 0:
+                    append_log("Decodificação não realizada")
+                elif status == 1:
+                    append_log("Verificação de comando: falhou")
+                elif status == 2:
+                    append_log("Verificação de comando: passou")
+                elif status == 3:
+                    append_log("Aviso: não foram detectados bits suficientes para decodificação")
+                append_log(f"Número de edges de subida: {r_edg}")
+                append_log(f"Número de edges de descida: {f_edg}")
+                append_log(f"Bits detectados: {len(bits)}")
+                append_log(f"Endereço: {hex(address)}, Comando: {hex(command)}\n\n")
+
+                # update plots in main thread
+                root.after(0, lambda d=data, b=bin_data: update_plots(d, b))
+                # small idle to allow UI events to be processed
+                if capture_stop_event.is_set():
+                    break
         except Exception as e:
             append_log(f"Erro: {e}")
         finally:
+            # re-enable start button and disable stop button when loop ends
             start_btn.config(state='normal')
+            stop_btn.config(state='disabled')
 
     def on_start():
         try:
@@ -181,9 +200,21 @@ def build_gui():
             append_log(f"Parâmetros inválidos: {e}")
             return
 
+        # start continuous capture
         start_btn.config(state='disabled')
+        stop_btn.config(state='normal')
+        capture_stop_event.clear()
         t = threading.Thread(target=capture_thread, args=(port, baud, read_dur, trigger, cap_len), daemon=True)
         t.start()
+
+    def on_stop():
+        """Signal to stop the capture loop. The actual stop will occur after
+        the current capture finishes (since r_serial is blocking)."""
+        append_log("Solicitado stop de captura. Aguardando fim da captura atual...")
+        capture_stop_event.set()
+
+    # wire stop button
+    stop_btn.config(command=on_stop)
 
     start_btn.config(command=on_start)
 

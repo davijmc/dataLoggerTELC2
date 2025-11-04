@@ -1,10 +1,15 @@
 import serial
 import time
 from datetime import datetime
+import plotTeste as pltTeste
+import decodificador as dec
+import conversorAD as cvad
 
 SERIAL_PORT = 'COM6'
 BAUD_RATE = 2000000
-READ_DURATION = 10  # segundos; use None para rodar até Ctrl+C
+READ_DURATION = 0.25 # 0.175 segundos; use None para rodar até Ctrl+C
+TRIGGER_VALUE = 200  # valor de trigger para salvar
+CAPTURE_LENGTH = 8500  # número de amostras a capturar após o trigger
 OUTPUT_FILE = 'dados.txt'
 
 def save_vector_to_file(vec, filename=OUTPUT_FILE):
@@ -13,31 +18,53 @@ def save_vector_to_file(vec, filename=OUTPUT_FILE):
         for v in vec:
             f.write(f"{v}\n")
 
-def read_uint8_from_serial(port, baud, duration=None):
+def read_uint8_from_serial(port, baud, duration):
     ser = serial.Serial(port, baud, timeout=1)
+    ser.set_buffer_size(rx_size=16000, tx_size=16000)
+    ser.reset_input_buffer()
     data = []
-    start = time.time()
+    #start_time = time.time()
+    count = 0
+    begin = 0
+    end = 0 
+    estado = 'IDLE'
     try:
-        print(f"Abrindo {port} @ {baud}. Lendo {'até Ctrl+C' if duration is None else f'{duration} segundos'}...")
         while True:
-            if duration is not None and (time.time() - start) >= duration:
-                break
-            if ser.in_waiting:
-                b = ser.read(1)  # lê 1 byte
-                if b:
-                    # uint8 little-endian (para 1 byte não muda)
-                    val = int.from_bytes(b, byteorder='little', signed=False)
-                    data.append(val)
-                    print(f"{datetime.now().strftime('%H:%M:%S.%f')[:-3]} - {val}")
-            else:
-                time.sleep(0.001)  # evita loop ocupado
+            # Lê todos os bytes disponíveis (uint8)
+            dados = ser.read(ser.in_waiting or 1)
+            if not dados:
+                continue  # nada novo, volta pro loop
+
+            for v in dados:
+                if estado == 'IDLE':
+                    if v < TRIGGER_VALUE:
+                        print("Trigger detectado!")
+                        estado = 'TRIGGERED'
+                        captura = [v]
+                        inicio_captura = time.time()
+                elif estado == 'TRIGGERED':
+                    captura.append(v)
+                    if len(captura) >= CAPTURE_LENGTH:
+                        duracao = time.time() - inicio_captura
+                        print(f"Capturados {len(captura)} amostras em {duracao:.6f} s")
+                        estado = 'IDLE'
+                        # guarda a captura e sai do loop para pós-processamento
+                        data = captura
+                        print("Captura armazenada; saindo do loop para processamento")
+                        # retorna da função — o bloco finally executará a limpeza e o processamento
+                        return
+    except StopIteration:
+        # StopIteration não esperado no fluxo atual — não há dados a extrair aqui.
+        # Deixar a limpeza e o pós-processamento para o bloco finally.
+        pass
+
     except KeyboardInterrupt:
         print("Interrompido pelo usuário")
     finally:
         ser.close()
         print("Serial fechada")
-        save_vector_to_file(data, OUTPUT_FILE)
-        print(f"{len(data)} valores salvos em {OUTPUT_FILE}")
+        return data
 
-if __name__ == '__main__':
-    read_uint8_from_serial(SERIAL_PORT, BAUD_RATE, READ_DURATION)
+# if __name__ == '__main__':
+#     read_uint8_from_serial(SERIAL_PORT, BAUD_RATE, float(READ_DURATION))
+    

@@ -3,6 +3,9 @@ import numpy as np
 def nec_decoder(signal, fs):
     decoded_address = 0
     decoded_command = 0
+    status = 0
+    r_edg = 0
+    f_edg = 0
 
     T_bit_off = 562e-6
     T_bit_on = 1687e-6
@@ -13,8 +16,10 @@ def nec_decoder(signal, fs):
 
     rising_edges = np.where(signal_diff > 0)[0]
     falling_edges = np.where(signal_diff < 0)[0]
-    print(f"Rising edges: {len(rising_edges)}")
-    print(f"Falling edges: {len(falling_edges)}")
+    r_edg = len(rising_edges)
+    f_edg = len(falling_edges)
+    #print(f"Rising edges: {len(rising_edges)}")
+    #print(f"Falling edges: {len(falling_edges)}")
 
     if len(rising_edges) > 2 and len(falling_edges) > 2:
         rising_edges = rising_edges[1:]
@@ -34,7 +39,7 @@ def nec_decoder(signal, fs):
             elif abs(space_duration - T_bit_on) / T_bit_on < T_tolerance:
                 bits.append(1)
 
-    print(f"Bits detectados: {len(bits)}")
+    #print(f"Bits detectados: {len(bits)}")
     if len(bits) == 32:
         address_bits = bits[0:16]
         command_bits = bits[16:24]
@@ -48,10 +53,13 @@ def nec_decoder(signal, fs):
         decoded_inv_command = bits_to_int(inv_command_bits)
 
         if (decoded_command ^ 0xFF) != decoded_inv_command:
-            print("Verificação de comando: falhou")
+            #print("Verificação de comando: falhou")
+            status = 1
         else:
-            print("Verificação de comando: passou")
+            #print("Verificação de comando: passou")
+            status = 2
     else:
-        print("Aviso: não foram detectados bits suficientes para decodificação")
+        #print("Aviso: não foram detectados bits suficientes para decodificação")
+        status = 3
 
-    return decoded_address, decoded_command
+    return decoded_address, decoded_command, status, r_edg, f_edg, bits

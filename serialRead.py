@@ -5,20 +5,7 @@ import plotTeste as pltTeste
 import decodificador as dec
 import conversorAD as cvad
 
-SERIAL_PORT = 'COM6'
-BAUD_RATE = 2000000
-READ_DURATION = 0.25 # 0.175 segundos; use None para rodar até Ctrl+C
-TRIGGER_VALUE = 200  # valor de trigger para salvar
-CAPTURE_LENGTH = 8500  # número de amostras a capturar após o trigger
-OUTPUT_FILE = 'dados.txt'
-
-def save_vector_to_file(vec, filename=OUTPUT_FILE):
-    """Salva os valores do vetor em arquivo, um por linha."""
-    with open(filename, 'w') as f:
-        for v in vec:
-            f.write(f"{v}\n")
-
-def read_uint8_from_serial(port, baud, duration):
+def r_serial(port, baud, TRIGGER_VALUE, CAPTURE_LENGTH): #read_uint8_from_serial
     ser = serial.Serial(port, baud, timeout=1)
     ser.set_buffer_size(rx_size=16000, tx_size=16000)
     ser.reset_input_buffer()
@@ -63,8 +50,8 @@ def read_uint8_from_serial(port, baud, duration):
     finally:
         ser.close()
         print("Serial fechada")
-        return data
+        return data, duracao
 
 # if __name__ == '__main__':
-#     read_uint8_from_serial(SERIAL_PORT, BAUD_RATE, float(READ_DURATION))
+#     read_uint8_from_serial(SERIAL_PORT, BAUD_RATE)
     

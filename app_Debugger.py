@@ -155,8 +155,8 @@ def build_gui():
                 append_log("Aguardando trigger / iniciando nova captura...")
                 data, duracao = sr.r_serial(port, baud, trigger, cap_len)
                 append_log(f"Captura finalizada, duração: {duracao:.3f}s, amostras: {len(data)}")
-                bin_data = cvad.ad(data)
-                fs = 82333  # Hz, valor estimado
+                bin_data = cvad.s_to_bin(data)
+                fs = 82333  # Hz
                 # dec.nec_decoder may return bits as part of tuple; keep compatibility
                 try:
                     address, command, status, r_edg, f_edg, bits = dec.nec_decoder(bin_data, fs)
@@ -172,8 +172,8 @@ def build_gui():
                     append_log("Verificação de comando: passou")
                 elif status == 3:
                     append_log("Aviso: não foram detectados bits suficientes para decodificação")
-                append_log(f"Número de edges de subida: {r_edg}")
-                append_log(f"Número de edges de descida: {f_edg}")
+                #append_log(f"Número de edges de subida: {r_edg}")
+                #append_log(f"Número de edges de descida: {f_edg}")
                 append_log(f"Bits detectados: {len(bits)}")
                 append_log(f"Endereço: {hex(address)}, Comando: {hex(command)}\n\n")
 

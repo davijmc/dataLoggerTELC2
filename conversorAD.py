@@ -1,4 +1,4 @@
-def ad(signal):
+def s_to_bin(signal):
     signal_max = max(signal)
     signal_min = min(signal)
     avg = (signal_max + signal_min) / 2

@@ -25,23 +25,23 @@ def mouse(action):
         pag.press('d')  # tecla D
 
 if __name__ == '__main__':
-    fs = 82333  # Hz, valor estimado
+    fs = 84000  # Hz
     action = 0
     while True:
         data, duracao = sr.r_serial(SERIAL_PORT, BAUD_RATE, TRIGGER_VALUE, CAPTURE_LENGTH)
-        bin_data = cvad.ad(data)
+        bin_data = cvad.s_to_bin(data)
         address, command, status, r_edg, f_edg, bits = dec.nec_decoder(bin_data, fs)
         if command == 0x0:
             action = action
         elif command == 0x8:
-            action = 1
+            action = 1 # tecla Enter
         elif command == 0x12:
-            action = 2
+            action = 2 # tecla W
         elif command == 0x18:
-            action = 3
+            action = 3 # tecla S
         elif command == 0x14:
-            action = 4
+            action = 4 # tecla A
         elif command == 0x16:
-            action = 5
-        print(f"Comando recebido: {hex(command)} -> ação: {action}")
+            action = 5 # tecla D
+        print(f"Comando recebido: {hex(command)} -> acao: {action}")
         mouse(action)

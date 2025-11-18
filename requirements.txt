@@ -1,0 +1,22 @@
+# Data Logger TELC2 - Dependências Python
+# Python 3.7+ requerido
+
+# Comunicação serial com hardware (STM32F401)
+pyserial>=3.5
+
+# Processamento numérico e operações vetoriais
+numpy>=1.19.0
+
+# Visualização de gráficos e sinais
+matplotlib>=3.3.0
+
+# Automação de teclado e mouse (para app_Keyboard.py e app_Mouse.py)
+pyautogui>=0.9.53
+
+# Nota: tkinter geralmente vem incluído com Python
+# Se não estiver disponível, instale via:
+# - Ubuntu/Debian: sudo apt-get install python3-tk
+# - Fedora: sudo dnf install python3-tkinter
+# - macOS: geralmente já incluído
+# - Windows: geralmente já incluído
+

@@ -156,7 +156,7 @@ def build_gui():
                 data, duracao = sr.r_serial(port, baud, trigger, cap_len)
                 append_log(f"Captura finalizada, duração: {duracao:.3f}s, amostras: {len(data)}")
                 bin_data = cvad.s_to_bin(data)
-                fs = 82333  # Hz
+                fs = 84000  # Hz
                 # dec.nec_decoder may return bits as part of tuple; keep compatibility
                 try:
                     address, command, status, r_edg, f_edg, bits = dec.nec_decoder(bin_data, fs)
